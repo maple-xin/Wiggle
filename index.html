@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>WIGGLE PARTY</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #14152B;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: 'Arial Black', Arial, Helvetica, sans-serif;
+  }
+  canvas#c { position: fixed; inset: 0; display: block; touch-action: none; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; }
+  body.ingame #hud { display: block; }
+  #badge {
+    position: absolute; top: calc(env(safe-area-inset-top) + 14px); left: 14px;
+    background: #F5D93F; color: #1B1B1F;
+    border: 4px solid #1B1B1F; border-radius: 14px;
+    box-shadow: 0 4px 0 #1B1B1F;
+    font-weight: 900; font-size: 11px; letter-spacing: 2px;
+    padding: 9px 13px;
+  }
+  #cntwrap {
+    position: absolute; top: calc(env(safe-area-inset-top) + 62px); left: 14px;
+    background: #fff; color: #1B1B1F;
+    border: 4px solid #1B1B1F; border-radius: 14px;
+    box-shadow: 0 4px 0 #1B1B1F;
+    font-weight: 900; font-size: 20px; letter-spacing: 1px;
+    padding: 8px 14px;
+  }
+  #cntwrap small { display: block; font-size: 8px; letter-spacing: 2px; color: #6F73A8; }
+  #right { position: absolute; top: calc(env(safe-area-inset-top) + 14px); right: 14px; text-align: right; }
+  #best {
+    display: inline-block; background: #fff; color: #1B1B1F;
+    border: 4px solid #1B1B1F; border-radius: 999px;
+    box-shadow: 0 4px 0 #1B1B1F;
+    font-weight: 900; font-size: 11px; letter-spacing: 1px;
+    padding: 8px 14px;
+  }
+  #mute {
+    margin-top: 10px; pointer-events: auto; cursor: pointer;
+    background: #fff; color: #1B1B1F;
+    border: 3px solid #1B1B1F; border-radius: 999px;
+    box-shadow: 0 3px 0 #1B1B1F;
+    font-weight: 900; font-family: inherit;
+    font-size: 9px; letter-spacing: 1px; padding: 7px 10px;
+  }
+  .ov {
+    position: fixed; inset: 0; z-index: 30;
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 24px;
+  }
+  .ov.show { display: flex; }
+  #title { background: rgba(20,21,43,0.82); z-index: 40; }
+  #title h1 {
+    margin: 0; color: #F5D93F;
+    font-size: 15vmin; line-height: .86; font-weight: 900;
+    letter-spacing: -1px;
+    text-shadow: 0 5px 0 #1B1B1F;
+  }
+  #title h1 span { color: #6FCF7F; }
+  #title .tag {
+    margin: 18px 0 0; color: #fff; font-weight: 700;
+    font-size: 13px; letter-spacing: 1px; line-height: 1.6;
+  }
+  #title .tag b { color: #F5D93F; }
+  #title .best-line { color: #9AA0C8; font-weight: 900; font-size: 12px; margin-top: 10px; letter-spacing: 1px; }
+  .btn {
+    pointer-events: auto; cursor: pointer;
+    background: #F5D93F; color: #1B1B1F;
+    border: 4px solid #1B1B1F; border-radius: 18px;
+    box-shadow: 0 6px 0 #1B1B1F;
+    font-weight: 900; font-family: inherit;
+    font-size: 20px; letter-spacing: 1px;
+    padding: 16px 42px; margin-top: 20px;
+  }
+  .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #1B1B1F; }
+  .btn.ghost { background: #fff; font-size: 13px; padding: 12px 26px; }
+  .btn.small { font-size: 11px; padding: 10px 20px; margin-top: 12px; }
+  #doneOv { background: rgba(20,21,43,0.88); z-index: 40; }
+  #doneOv h2 {
+    margin: 0; color: #6FCF7F; font-weight: 900;
+    font-size: 12vmin; line-height: .9;
+    text-shadow: 0 5px 0 #1B1B1F;
+  }
+  #doneOv .sub { color: #fff; font-weight: 900; font-size: 14px; margin-top: 14px; letter-spacing: 1px; }
+  #doneOv .sub b { color: #F5D93F; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="badge">WIGGLE PARTY</div>
+  <div id="cntwrap"><small>WIGGLERS</small><span id="cnt">0000</span></div>
+  <div id="right">
+    <span id="best">BEST 0000</span><br>
+    <button id="mute">SND ON</button>
+  </div>
+</div>
+
+<div id="title" class="ov show">
+  <h1>WIGGLE<br><span>PARTY</span></h1>
+  <p class="tag">Tap the floor to summon bald wigglers.<br>Drag to paint a crowd. <b>Reach 1000.</b></p>
+  <p class="best-line" id="titleBest">BEST 0000</p>
+  <button class="btn" id="startBtn">START THE PARTY</button>
+</div>
+
+<div id="doneOv" class="ov">
+  <h2>PARTY LEGEND!</h2>
+  <p class="sub" id="doneStats">YOU THREW A 1000-WIGGLE PARTY</p>
+  <button class="btn" id="contBtn2">KEEP PARTYING</button>
+  <button class="btn ghost" id="againBtn">PLAY AGAIN</button>
+  <button class="btn ghost small" id="shareBtn">BRAG TO FRIENDS</button>
+</div>
+
+<script>
+'use strict';
+/* ============ WIGGLE PARTY ============
+   Tap the floor: bald wigglers pop out and dance.
+   Drag to paint a crowd. Fast taps trigger FRENZY.
+   Every 25/50/100... wigglers the disco floor, the
+   dance move and the beat escalate. Goal: 1000. */
+
+var cvs = document.getElementById('c');
+var ctx = cvs.getContext('2d');
+var W = 0, H = 0, DPR = 1;
+var floorTop = 0, bandY = [0, 0, 0], bandS = [0.5, 0.75, 1.0];
+var last = -1;
+
+var INK = '#1B1B1F', BG = '#14152B', SKIN = '#F2C89B', GREEN = '#6FCF7F',
+    BLUE = '#4A63D8', SHOE = '#8A5A36', RED = '#E2574C', YEL = '#F5D93F';
+var PAL = [
+  ['#3B2E63', '#4C3B7E'], ['#7A2E5A', '#96386F'], ['#1E5A6E', '#2A7690'],
+  ['#6E3B1E', '#8E4E28'], ['#2E6E3B', '#3C8E4C'], ['#5A1E3B', '#7A2A50']
+];
+var BPM = 124;
+var MOVES = ['BOUNCE', 'WAVE', 'SWAY', 'SPIN'];
+var LEVELS = [
+  { at: 0,    pal: 0, move: 0, msg: 'PARTY START!' },
+  { at: 25,   pal: 1, move: 1, msg: 'THE WAVE!' },
+  { at: 50,   pal: 2, move: 2, msg: 'EVERYBODY SWAY!' },
+  { at: 100,  pal: 3, move: 3, msg: 'SPIN CYCLE!' },
+  { at: 200,  pal: 4, move: 0, msg: 'FLOOR MELTDOWN!' },
+  { at: 350,  pal: 5, move: 1, msg: 'STROBE MODE!' },
+  { at: 500,  pal: 0, move: 2, msg: 'CROWN SEASON!' },
+  { at: 750,  pal: 1, move: 3, msg: 'MAXIMUM WIGGLE!' },
+  { at: 1000, pal: 2, move: 3, msg: 'PARTY LEGEND!' }
+];
+
+/* ---------- audio (synth beat, no files) ---------- */
+var AC = null, master = null, muted = false;
+function audio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = 0.3;
+      master.connect(AC.destination);
+    } catch (e) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function blip(freq, when, dur, type, gain) {
+  if (!AC || muted) return;
+  var t = when || AC.currentTime;
+  var o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'triangle';
+  o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain || 0.4, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12));
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + (dur || 0.12) + 0.05);
+}
+function kick(t) {
+  if (!AC || muted) return;
+  var o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(150, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+  g.gain.setValueAtTime(0.8, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + 0.17);
+}
+function hat(t) { blip(5200, t, 0.03, 'square', 0.07); }
+function bass(f, t, dur) { blip(f, t, dur, 'sawtooth', 0.14); }
+var step16 = 0, next16 = 0;
+function sched() {
+  if (!AC || muted) return;
+  var spb = 60 / BPM / 4;
+  if (next16 < AC.currentTime) next16 = AC.currentTime + 0.02;
+  var ahead = AC.currentTime + 0.16;
+  var bars = [0, 0, 5, 3];
+  while (next16 < ahead) {
+    var s = step16 % 16;
+    if (s % 4 === 0) kick(next16);
+    if (s % 2 === 1) hat(next16);
+    if (s % 2 === 0) bass(110 * Math.pow(2, bars[Math.floor(step16 / 16) % 4] / 12), next16, 0.11);
+    next16 += spb; step16++;
+  }
+}
+
+/* ---------- sprites (pre-rendered bald wiggler) ---------- */
+var SPR = {};
+function rr(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function limb(g, x1, y1, x2, y2, w, col) {
+  g.lineCap = 'round';
+  g.strokeStyle = INK; g.lineWidth = w + 6;
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  g.strokeStyle = col; g.lineWidth = w;
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+}
+function drawPose(g, move, frame, acc) {
+  var sq = frame === 0 ? 0 : 1; /* 0 squash / 1 stretch */
+  var torsoX, torsoY, torsoW, torsoH, headY, lean = 0, armL, armR;
+  if (move === 0) {           /* BOUNCE */
+    torsoX = 20 + sq; torsoY = 31 - sq * 3; torsoW = 36 - sq * 2; torsoH = 28 + sq * 4;
+    headY = 17 + sq * 2;
+    armL = [26, torsoY + 8, 20, torsoY + 22];
+    armR = [50, torsoY + 8, 56, torsoY + 22];
+  } else if (move === 1) {    /* WAVE */
+    torsoX = 20; torsoY = 30; torsoW = 36; torsoH = 29; headY = 17;
+    armL = [26, 38, 20, 48];
+    armR = [50, 36, 58, frame ? 11 : 19];
+  } else if (move === 2) {    /* SWAY */
+    lean = frame ? 3 : -3;
+    torsoX = 20 + lean; torsoY = 30; torsoW = 36; torsoH = 29; headY = 17;
+    armL = [26 + lean, 36, 18 + lean, 44];
+    armR = [50 + lean, 36, 58 + lean, 44];
+  } else {                    /* SPIN */
+    torsoX = 20 - sq * 2; torsoY = 30 + sq * 2; torsoW = 36 + sq * 4; torsoH = 29 - sq * 3;
+    headY = 17;
+    armL = [26, 37, 16, 34];
+    armR = [50, 37, 60, 34];
+  }
+  var cx = 38 + lean;
+  /* arms behind torso */
+  limb(g, armL[0], armL[1], armL[2], armL[3], 8, GREEN);
+  limb(g, armR[0], armR[1], armR[2], armR[3], 8, GREEN);
+  /* legs + shoes */
+  limb(g, 30, torsoY + torsoH - 8, 30, 78, 8, BLUE);
+  limb(g, 46, torsoY + torsoH - 8, 46, 78, 8, BLUE);
+  g.fillStyle = SHOE; g.strokeStyle = INK; g.lineWidth = 3.5;
+  rr(g, 22, 77, 15, 8, 3.5); g.fill(); g.stroke();
+  rr(g, 39, 77, 15, 8, 3.5); g.fill(); g.stroke();
+  /* torso */
+  g.fillStyle = GREEN; g.strokeStyle = INK; g.lineWidth = 4;
+  rr(g, torsoX, torsoY + 12, torsoW, torsoH, 9); g.fill(); g.stroke();
+  /* head + face */
+  g.fillStyle = SKIN; g.strokeStyle = INK; g.lineWidth = 4;
+  g.beginPath(); g.arc(cx, headY, 14, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.fillStyle = INK;
+  g.beginPath(); g.arc(cx - 5, headY - 2, 2.2, 0, 6.3); g.fill();
+  g.beginPath(); g.arc(cx + 5, headY - 2, 2.2, 0, 6.3); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 2.6;
+  g.beginPath(); g.arc(cx, headY + 5, 5, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+  /* accessories */
+  if (acc === 1) {            /* party hat */
+    g.fillStyle = YEL; g.strokeStyle = INK; g.lineWidth = 3.5;
+    g.beginPath();
+    g.moveTo(cx, headY - 22); g.lineTo(cx - 12, headY - 6); g.lineTo(cx + 12, headY - 6);
+    g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = RED;
+    g.beginPath(); g.arc(cx, headY - 23, 3.6, 0, 6.3); g.fill(); g.stroke();
+  } else if (acc === 2) {     /* shades */
+    g.fillStyle = INK;
+    rr(g, cx - 13, headY - 7, 26, 8, 3); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.fillRect(cx - 10, headY - 6, 5, 2);
+  } else if (acc === 3) {     /* crown */
+    g.fillStyle = YEL; g.strokeStyle = INK; g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(cx - 13, headY - 8);
+    g.lineTo(cx - 9, headY - 19); g.lineTo(cx - 4.5, headY - 11);
+    g.lineTo(cx, headY - 21); g.lineTo(cx + 4.5, headY - 11);
+    g.lineTo(cx + 9, headY - 19); g.lineTo(cx + 13, headY - 8);
+    g.closePath(); g.fill(); g.stroke();
+  }
+}
+function getSpr(move, frame, acc, face) {
+  var k = move + '|' + frame + '|' + acc + '|' + face;
+  var s = SPR[k];
+  if (s) return s;
+  var cv = document.createElement('canvas');
+  cv.width = 76; cv.height = 92;
+  var g = cv.getContext('2d');
+  if (face === -1) { g.translate(76, 0); g.scale(-1, 1); }
+  drawPose(g, move, frame, acc);
+  SPR[k] = cv;
+  return cv;
+}
+
+/* ---------- state ---------- */
+var state = 'title'; /* title | play | done */
+var dancers = [], bands = [[], [], []];
+var count = 0, best = 0, level = 0, frenzy = 0, lastTapT = -9, tGlobal = 0;
+var flash = 0, dragging = false, lastPt = null, hintPulse = 0, callT = 2;
+var sparkles = [], confetti = [], floaters = [];
+var MAXD = 2000;
+var LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26];
+var CALLS = ['WIGGLE!', 'HA!', 'BOOM!', 'YEAH!', 'OO LA LA!'];
+
+var $ = function (id) { return document.getElementById(id); };
+var cntEl = $('cnt'), bestEl = $('best'), titleBestEl = $('titleBest');
+
+function loadBest() {
+  try { best = parseInt(localStorage.getItem('wiggle_best') || '0', 10) || 0; } catch (e) { best = 0; }
+  bestEl.textContent = 'BEST ' + pad(best);
+  titleBestEl.textContent = 'BEST ' + pad(best);
+}
+function pad(n) { return ('0000' + n).slice(-4); }
+function saveBest() {
+  if (count > best) {
+    best = count;
+    try { localStorage.setItem('wiggle_best', String(best)); } catch (e) {}
+    bestEl.textContent = 'BEST ' + pad(best);
+    titleBestEl.textContent = 'BEST ' + pad(best);
+  }
+}
+function updateHud() { cntEl.textContent = pad(count); }
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  floorTop = H * 0.5;
+  bandY[0] = floorTop + (H - floorTop) * 0.18;
+  bandY[1] = floorTop + (H - floorTop) * 0.44;
+  bandY[2] = floorTop + (H - floorTop) * 0.70;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- spawning ---------- */
+function pickAcc() {
+  var r = Math.random();
+  if (level >= 7 && r < 0.10) return 3;
+  if (level >= 4 && r < 0.26) return 2;
+  if (r < 0.42) return 1;
+  return 0;
+}
+function spawnDancer(x, y, demo) {
+  if (!demo && dancers.length >= MAXD) return null;
+  var band = demo ? 1 : (y < bandY[0] ? 0 : (y < bandY[1] ? 1 : 2));
+  var px = Math.max(26, Math.min(W - 26, x));
+  var d = {
+    x: px, band: band, y: bandY[band], s: bandS[band],
+    face: Math.random() < 0.5 ? -1 : 1,
+    acc: pickAcc(), jt: 0.99, jd: 0.34, spinT: 0, demo: !!demo
+  };
+  if (demo) { d.jt = 0; }
+  dancers.push(d);
+  bands[band].push(d);
+  return d;
+}
+function burstSparkles(x, y, n, col) {
+  if (sparkles.length > 160) return;
+  for (var i = 0; i < n; i++) {
+    sparkles.push({
+      x: x, y: y,
+      vx: (Math.random() - 0.5) * 160, vy: -Math.random() * 130 - 20,
+      t: 0, life: 0.4 + Math.random() * 0.25, col: col || YEL
+    });
+  }
+}
+function confettiBurst(x, y, n) {
+  if (confetti.length > 220) return;
+  var cols = [YEL, GREEN, BLUE, RED, '#FFFFFF'];
+  for (var i = 0; i < n; i++) {
+    confetti.push({
+      x: x, y: y,
+      vx: (Math.random() - 0.5) * 420, vy: -Math.random() * 380 - 90,
+      rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12,
+      t: 0, life: 1.1 + Math.random() * 0.7,
+      col: cols[(Math.random() * cols.length) | 0]
+    });
+  }
+}
+function floater(x, y, txt, col, life) {
+  if (floaters.length > 20) floaters.shift();
+  floaters.push({ x: x, y: y, txt: txt, col: col || '#FFFFFF', t: 0, life: life || 1.1 });
+}
+function soloHit(x, y) {
+  for (var i = dancers.length - 1; i >= 0 && i >= dancers.length - 200; i--) {
+    var d = dancers[i];
+    if (d.demo) continue;
+    var hx = d.x, hy = d.y - 52 * d.s;
+    if (Math.abs(x - hx) < 38 * d.s && Math.abs(y - hy) < 58 * d.s) return d;
+  }
+  return null;
+}
+function summonAt(x, y) {
+  var d = spawnDancer(x, y);
+  if (!d) return;
+  count++;
+  var f = 220 * Math.pow(2, LADDER[count % LADDER.length] / 12);
+  audio();
+  blip(f, 0, 0.11, 'triangle', 0.5);
+  burstSparkles(d.x, d.y - 60 * d.s, 5);
+  checkLevel();
+  updateHud();
+}
+function tapAt(x, y) {
+  if (state !== 'play') return;
+  var now = tGlobal;
+  if (now - lastTapT < 0.33) frenzy = Math.min(1.5, frenzy + 0.34);
+  else frenzy = Math.max(0, frenzy - 0.6);
+  lastTapT = now;
+  var s = soloHit(x, y);
+  if (s) {
+    s.spinT = 0.5; s.jt = 0; s.jd = 0.3;
+    burstSparkles(s.x, s.y - 60 * s.s, 9, '#FFFFFF');
+    floater(s.x, s.y - 105 * s.s, 'NICE MOVE!', YEL, 0.8);
+    blip(1180, 0, 0.08, 'square', 0.28);
+  }
+  if (frenzy >= 1) {
+    frenzy = 0.3;
+    flash = Math.max(flash, 0.4);
+    floater(x, y - 110, 'FRENZY!', YEL, 0.8);
+    blip(880, 0, 0.14, 'sawtooth', 0.3);
+    for (var i = 0; i < 4; i++) summonAt(x + (Math.random() - 0.5) * 150, y + (Math.random() - 0.5) * 60);
+    confettiBurst(x, y - 60, 18);
+  }
+  summonAt(x, y);
+}
+function pos(e) {
+  var r = cvs.getBoundingClientRect();
+  var sx = r.width ? W / r.width : 1;
+  var sy = r.height ? H / r.height : 1;
+  return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
+}
+cvs.addEventListener('pointerdown', function (e) {
+  if (state !== 'play') return;
+  e.preventDefault();
+  audio();
+  var p = pos(e);
+  tapAt(p.x, p.y);
+  lastPt = p; dragging = true;
+});
+cvs.addEventListener('pointermove', function (e) {
+  if (state !== 'play' || !dragging) return;
+  e.preventDefault();
+  var p = pos(e);
+  var dx = p.x - lastPt.x, dy = p.y - lastPt.y;
+  if (dx * dx + dy * dy > 34 * 34) {
+    tapAt(p.x, p.y);
+    lastPt = p;
+  }
+});
+function endPtr() { dragging = false; lastPt = null; }
+cvs.addEventListener('pointerup', endPtr);
+cvs.addEventListener('pointercancel', endPtr);
+cvs.addEventListener('pointerleave', endPtr);
+
+/* ---------- levels ---------- */
+function checkLevel() {
+  var nl = 0;
+  for (var i = 0; i < LEVELS.length; i++) if (count >= LEVELS[i].at) nl = i;
+  if (nl > level) {
+    level = nl;
+    celebrate(nl);
+  } else if (count > 0 && count % 100 === 0) {
+    floater(W / 2, H * 0.32, count + ' WIGGLERS!', YEL, 1.2);
+    confettiBurst(W / 2, H * 0.4, 30);
+    blip(990, 0, 0.12, 'triangle', 0.3);
+  }
+}
+function celebrate(nl) {
+  var L = LEVELS[nl];
+  flash = Math.max(flash, 0.5);
+  floater(W / 2, H * 0.3, L.msg, YEL, 1.8);
+  floater(W / 2, H * 0.3 + 34, 'NEW MOVE: ' + MOVES[L.move], '#FFFFFF', 1.8);
+  confettiBurst(W / 2, H * 0.38, 70);
+  audio();
+  var chord = [0, 4, 7, 12, 16];
+  for (var i = 0; i < chord.length; i++) blip(220 * Math.pow(2, chord[i] / 12), AC ? AC.currentTime + i * 0.07 : 0, 0.16, 'triangle', 0.34);
+  saveBest();
+  if (nl === LEVELS.length - 1) winGame();
+}
+function winGame() {
+  state = 'done';
+  saveBest();
+  $('doneStats').innerHTML = 'YOU THREW A <b>' + count + '</b>-WIGGLE PARTY<br>IN <b>' + Math.round(tGlobal) + '</b> SECONDS';
+  $('doneOv').classList.add('show');
+}
+
+/* ---------- flow ---------- */
+function resetGame() {
+  dancers = []; bands = [[], [], []];
+  count = 0; level = 0; frenzy = 0; lastTapT = -9;
+  sparkles = []; confetti = []; floaters = [];
+  dragging = false; lastPt = null;
+  state = 'play';
+  document.body.classList.add('ingame');
+  updateHud();
+}
+function demoParty() {
+  for (var i = 0; i < 4; i++) spawnDancer(70 + i * ((W - 140) / 3), H * 0.72, true);
+}
+demoParty();
+
+$('startBtn').addEventListener('click', function () {
+  audio();
+  $('title').classList.remove('show');
+  resetGame();
+});
+$('againBtn').addEventListener('click', function () {
+  audio();
+  $('doneOv').classList.remove('show');
+  resetGame();
+});
+$('contBtn2').addEventListener('click', function () {
+  audio();
+  $('doneOv').classList.remove('show');
+  state = 'play';
+});
+$('shareBtn').addEventListener('click', function () {
+  var txt = 'I just threw a ' + count + '-wiggle party in WIGGLE PARTY!';
+  try {
+    if (navigator.share) { navigator.share({ title: 'WIGGLE PARTY', text: txt }); return; }
+  } catch (e) {}
+  floater(W / 2, H * 0.4, 'SCREENSHOT IT AND SHARE!', YEL, 1.6);
+});
+$('mute').addEventListener('click', function () {
+  muted = !muted;
+  this.textContent = muted ? 'SND OFF' : 'SND ON';
+  if (!muted) { audio(); next16 = 0; }
+});
+loadBest();
+updateHud();
+
+/* ---------- update ---------- */
+function update(dt) {
+  tGlobal += dt;
+  var i, d;
+  for (i = 0; i < dancers.length; i++) {
+    d = dancers[i];
+    if (d.jt < d.jd) d.jt += dt;
+    if (d.spinT > 0) d.spinT -= dt;
+  }
+  for (i = sparkles.length - 1; i >= 0; i--) {
+    var sp = sparkles[i];
+    sp.t += dt;
+    sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 520 * dt;
+    if (sp.t >= sp.life) sparkles.splice(i, 1);
+  }
+  for (i = confetti.length - 1; i >= 0; i--) {
+    var cf = confetti[i];
+    cf.t += dt;
+    cf.x += cf.vx * dt; cf.y += cf.vy * dt; cf.vy += 640 * dt; cf.rot += cf.vr * dt;
+    if (cf.t >= cf.life) confetti.splice(i, 1);
+  }
+  for (i = floaters.length - 1; i >= 0; i--) {
+    var fl = floaters[i];
+    fl.t += dt; fl.y -= 26 * dt;
+    if (fl.t >= fl.life) floaters.splice(i, 1);
+  }
+  if (flash > 0) flash = Math.max(0, flash - dt * 1.6);
+  if (state === 'play' && count > 0) {
+    callT -= dt;
+    if (callT <= 0) {
+      callT = 2 + Math.random();
+      var c = dancers[(Math.random() * dancers.length) | 0];
+      if (c && !c.demo) floater(c.x, c.y - 110 * c.s, CALLS[(Math.random() * CALLS.length) | 0], '#FFFFFF', 0.9);
+    }
+  }
+  sched();
+}
+
+/* ---------- draw ---------- */
+function beatParity(fast) {
+  var bps = BPM / 60;
+  if (fast) bps *= 2;
+  return Math.floor(tGlobal * bps) % 2;
+}
+function drawDiscoBall() {
+  var bx = W / 2 + Math.sin(tGlobal * 0.5) * Math.min(90, W * 0.22);
+  var by = 58;
+  ctx.strokeStyle = INK; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, by); ctx.stroke();
+  var r = 24, p = beatParity(false);
+  ctx.fillStyle = '#B9C0E8'; ctx.strokeStyle = INK; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#8E96C8';
+  for (var gx = -2; gx <= 2; gx++) for (var gy = -2; gy <= 2; gy++) {
+    if ((gx + gy) % 2 === p) ctx.fillRect(bx + gx * 9 - 3.5, by + gy * 9 - 3.5, 7, 7);
+  }
+  if (p) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(bx, by, r + 6, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+function drawFloor() {
+  var pal = PAL[LEVELS[level].pal];
+  var p = beatParity(false);
+  var tile = 64;
+  var cols = Math.ceil(W / tile) + 1;
+  var rows = Math.ceil((H - floorTop) / tile) + 1;
+  for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
+    ctx.fillStyle = ((r + c + p) % 2 === 0) ? pal[0] : pal[1];
+    ctx.fillRect(c * tile, floorTop + r * tile, tile, tile);
+  }
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, floorTop - 4, W, 4);
+  if (frenzy >= 1) {
+    ctx.strokeStyle = YEL; ctx.lineWidth = 6;
+    ctx.strokeRect(3, floorTop - 4 + 3, W - 6, H - floorTop);
+  }
+}
+function drawDancers() {
+  var mv = LEVELS[level].move;
+  for (var b = 0; b < 3; b++) {
+    var arr = bands[b];
+    for (var i = 0; i < arr.length; i++) {
+      var d = arr[i];
+      var spin = d.spinT > 0;
+      var move = spin ? 3 : mv;
+      var fr = (beatParity(spin) + d.band) % 2;
+      var spr = getSpr(move, fr, d.acc, d.face);
+      var s = d.s;
+      var jy = d.jt < d.jd ? -Math.sin(Math.PI * d.jt / d.jd) * 24 * s : 0;
+      /* shadow */
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y + 4, 20 * s, 6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.drawImage(spr, d.x - 38 * s, d.y - 86 * s + jy, 76 * s, 92 * s);
+    }
+  }
+}
+function drawParticles() {
+  var i;
+  for (i = 0; i < sparkles.length; i++) {
+    var sp = sparkles[i];
+    var a = 1 - sp.t / sp.life;
+    ctx.strokeStyle = sp.col; ctx.globalAlpha = a; ctx.lineWidth = 3;
+    var r = 3 + (1 - a) * 5;
+    ctx.beginPath();
+    ctx.moveTo(sp.x - r, sp.y); ctx.lineTo(sp.x + r, sp.y);
+    ctx.moveTo(sp.x, sp.y - r); ctx.lineTo(sp.x, sp.y + r);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  for (i = 0; i < confetti.length; i++) {
+    var cf = confetti[i];
+    ctx.save();
+    ctx.translate(cf.x, cf.y); ctx.rotate(cf.rot);
+    ctx.globalAlpha = Math.max(0, 1 - cf.t / cf.life);
+    ctx.fillStyle = cf.col;
+    ctx.fillRect(-4, -6, 8, 12);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawFloaters() {
+  ctx.textAlign = 'center';
+  for (var i = 0; i < floaters.length; i++) {
+    var fl = floaters[i];
+    var a = 1 - fl.t / fl.life;
+    ctx.globalAlpha = Math.min(1, a * 2.2);
+    ctx.font = '900 22px "Arial Black", Arial, sans-serif';
+    ctx.lineWidth = 5; ctx.strokeStyle = INK;
+    ctx.strokeText(fl.txt, fl.x, fl.y);
+    ctx.fillStyle = fl.col;
+    ctx.fillText(fl.txt, fl.x, fl.y);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawHint() {
+  if (state !== 'play' || count >= 4) return;
+  hintPulse += 0.05;
+  var a = 0.55 + Math.sin(hintPulse) * 0.35;
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center';
+  ctx.font = '900 26px "Arial Black", Arial, sans-serif';
+  ctx.lineWidth = 5; ctx.strokeStyle = INK;
+  ctx.strokeText('TAP THE FLOOR!', W / 2, H * 0.36);
+  ctx.fillStyle = YEL;
+  ctx.fillText('TAP THE FLOOR!', W / 2, H * 0.36);
+  ctx.font = '900 13px "Arial Black", Arial, sans-serif';
+  ctx.lineWidth = 4;
+  ctx.strokeText('SUMMON YOUR FIRST WIGGLER', W / 2, H * 0.36 + 26);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('SUMMON YOUR FIRST WIGGLER', W / 2, H * 0.36 + 26);
+  ctx.globalAlpha = 1;
+}
+function draw() {
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+  drawDiscoBall();
+  drawFloor();
+  drawDancers();
+  drawParticles();
+  drawFloaters();
+  drawHint();
+  if (flash > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,' + flash.toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ---------- main loop ---------- */
+function loop(now) {
+  requestAnimationFrame(loop);
+  var dt = last < 0 ? 0 : Math.min(0.05, Math.max(0, (now - last) / 1000));
+  last = now;
+  update(dt);
+  draw();
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
