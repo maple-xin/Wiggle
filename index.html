@@ -92,10 +92,19 @@
   }
   #doneOv .sub { color: #fff; font-weight: 900; font-size: 14px; margin-top: 14px; letter-spacing: 1px; }
   #doneOv .sub b { color: #F5D93F; }
+  #floaters { position: fixed; inset: 0; z-index: 9; pointer-events: none; display: none; }
+  body.ingame #floaters { display: block; }
+  .floater {
+    position: absolute; transform: translate(-50%, -50%);
+    font-weight: 900; font-size: 20px; letter-spacing: 1px;
+    white-space: nowrap; text-shadow: 0 4px 0 #1B1B1F;
+  }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 8; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="flash"></div>
 
 <div id="hud">
   <div id="badge">WIGGLE PARTY</div>
@@ -106,9 +115,11 @@
   </div>
 </div>
 
+<div id="floaters"></div>
+
 <div id="title" class="ov show">
   <h1>WIGGLE<br><span>PARTY</span></h1>
-  <p class="tag">Tap the floor to summon bald wigglers.<br>Drag to paint a crowd. <b>Reach 1000.</b></p>
+  <p class="tag">Tap the disco floor to summon bald wigglers.<br>Drag to paint a crowd. <b>Reach 1000.</b></p>
   <p class="best-line" id="titleBest">BEST 0000</p>
   <button class="btn" id="startBtn">START THE PARTY</button>
 </div>
@@ -121,611 +132,754 @@
   <button class="btn ghost small" id="shareBtn">BRAG TO FRIENDS</button>
 </div>
 
+<div id="cdnmsg" class="ov">
+  <h2 style="color:#E2574C;font-weight:900;font-size:8vmin;margin:0">3D ENGINE OFFLINE</h2>
+  <p class="tag" style="color:#fff">WIGGLE PARTY needs three.js.<br>Check the connection and reload.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 <script>
 'use strict';
-/* ============ WIGGLE PARTY ============
-   Tap the floor: bald wigglers pop out and dance.
-   Drag to paint a crowd. Fast taps trigger FRENZY.
-   Every 25/50/100... wigglers the disco floor, the
-   dance move and the beat escalate. Goal: 1000. */
+/* ============ WIGGLE PARTY 3D ============
+   Real WebGL/three.js scene. Low-poly bald wigglers.
+   Tap the 3D disco floor to summon dancers, drag to
+   paint a crowd, fast taps trigger FRENZY. The floor,
+   disco ball, dance move and beat escalate every level.
+   Goal: 1000 wigglers. */
 
-var cvs = document.getElementById('c');
-var ctx = cvs.getContext('2d');
-var W = 0, H = 0, DPR = 1;
-var floorTop = 0, bandY = [0, 0, 0], bandS = [0.5, 0.75, 1.0];
-var last = -1;
+function boot() {
+  var THREE = window.THREE;
+  if (!THREE) { document.getElementById('cdnmsg').classList.add('show'); return; }
 
-var INK = '#1B1B1F', BG = '#14152B', SKIN = '#F2C89B', GREEN = '#6FCF7F',
-    BLUE = '#4A63D8', SHOE = '#8A5A36', RED = '#E2574C', YEL = '#F5D93F';
-var PAL = [
-  ['#3B2E63', '#4C3B7E'], ['#7A2E5A', '#96386F'], ['#1E5A6E', '#2A7690'],
-  ['#6E3B1E', '#8E4E28'], ['#2E6E3B', '#3C8E4C'], ['#5A1E3B', '#7A2A50']
-];
-var BPM = 124;
-var MOVES = ['BOUNCE', 'WAVE', 'SWAY', 'SPIN'];
-var LEVELS = [
-  { at: 0,    pal: 0, move: 0, msg: 'PARTY START!' },
-  { at: 25,   pal: 1, move: 1, msg: 'THE WAVE!' },
-  { at: 50,   pal: 2, move: 2, msg: 'EVERYBODY SWAY!' },
-  { at: 100,  pal: 3, move: 3, msg: 'SPIN CYCLE!' },
-  { at: 200,  pal: 4, move: 0, msg: 'FLOOR MELTDOWN!' },
-  { at: 350,  pal: 5, move: 1, msg: 'STROBE MODE!' },
-  { at: 500,  pal: 0, move: 2, msg: 'CROWN SEASON!' },
-  { at: 750,  pal: 1, move: 3, msg: 'MAXIMUM WIGGLE!' },
-  { at: 1000, pal: 2, move: 3, msg: 'PARTY LEGEND!' }
-];
+  var cvs = document.getElementById('c');
+  var W = window.innerWidth, H = window.innerHeight, DPR = 1;
 
-/* ---------- audio (synth beat, no files) ---------- */
-var AC = null, master = null, muted = false;
-function audio() {
-  if (!AC) {
-    try {
-      AC = new (window.AudioContext || window.webkitAudioContext)();
-      master = AC.createGain(); master.gain.value = 0.3;
-      master.connect(AC.destination);
-    } catch (e) { AC = null; }
+  var INK = 0x1B1B1F, BG = 0x14152B, SKIN = 0xF2C89B, GREEN = 0x6FCF7F,
+      BLUE = 0x4A63D8, SHOE = 0x8A5A36, RED = 0xE2574C, YEL = 0xF5D93F,
+      WHITE = 0xFFFFFF;
+
+  var C_INK = new THREE.Color(INK), C_SKIN = new THREE.Color(SKIN),
+      C_GREEN = new THREE.Color(GREEN), C_BLUE = new THREE.Color(BLUE),
+      C_SHOE = new THREE.Color(SHOE), C_RED = new THREE.Color(RED),
+      C_YEL = new THREE.Color(YEL), C_WHITE = new THREE.Color(WHITE);
+
+  var BPM = 124;
+  var MAXD = 2000;
+  var MOVES = ['BOUNCE', 'WAVE', 'SWAY', 'SPIN'];
+  var LEVELS = [
+    { at: 0,    pal: 0, move: 0, msg: 'PARTY START!' },
+    { at: 25,   pal: 1, move: 1, msg: 'THE WAVE!' },
+    { at: 50,   pal: 2, move: 2, msg: 'EVERYBODY SWAY!' },
+    { at: 100,  pal: 3, move: 3, msg: 'SPIN CYCLE!' },
+    { at: 200,  pal: 4, move: 0, msg: 'FLOOR MELTDOWN!' },
+    { at: 350,  pal: 5, move: 1, msg: 'STROBE MODE!' },
+    { at: 500,  pal: 0, move: 2, msg: 'CROWN SEASON!' },
+    { at: 750,  pal: 1, move: 3, msg: 'MAXIMUM WIGGLE!' },
+    { at: 1000, pal: 2, move: 3, msg: 'PARTY LEGEND!' }
+  ];
+  var FLOOR_PAL = [];
+  var rawPal = [
+    [0x3B2E63, 0x4C3B7E], [0x7A2E5A, 0x96386F], [0x1E5A6E, 0x2A7690],
+    [0x6E3B1E, 0x8E4E28], [0x2E6E3B, 0x3C8E4C], [0x5A1E3B, 0x7A2A50]
+  ];
+  for (var pi = 0; pi < rawPal.length; pi++) {
+    FLOOR_PAL.push([new THREE.Color(rawPal[pi][0]), new THREE.Color(rawPal[pi][1])]);
   }
-  if (AC && AC.state === 'suspended') AC.resume();
-  return AC;
-}
-function blip(freq, when, dur, type, gain) {
-  if (!AC || muted) return;
-  var t = when || AC.currentTime;
-  var o = AC.createOscillator(), g = AC.createGain();
-  o.type = type || 'triangle';
-  o.frequency.setValueAtTime(freq, t);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(gain || 0.4, t + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12));
-  o.connect(g); g.connect(master);
-  o.start(t); o.stop(t + (dur || 0.12) + 0.05);
-}
-function kick(t) {
-  if (!AC || muted) return;
-  var o = AC.createOscillator(), g = AC.createGain();
-  o.frequency.setValueAtTime(150, t);
-  o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
-  g.gain.setValueAtTime(0.8, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-  o.connect(g); g.connect(master);
-  o.start(t); o.stop(t + 0.17);
-}
-function hat(t) { blip(5200, t, 0.03, 'square', 0.07); }
-function bass(f, t, dur) { blip(f, t, dur, 'sawtooth', 0.14); }
-var step16 = 0, next16 = 0;
-function sched() {
-  if (!AC || muted) return;
-  var spb = 60 / BPM / 4;
-  if (next16 < AC.currentTime) next16 = AC.currentTime + 0.02;
-  var ahead = AC.currentTime + 0.16;
-  var bars = [0, 0, 5, 3];
-  while (next16 < ahead) {
-    var s = step16 % 16;
-    if (s % 4 === 0) kick(next16);
-    if (s % 2 === 1) hat(next16);
-    if (s % 2 === 0) bass(110 * Math.pow(2, bars[Math.floor(step16 / 16) % 4] / 12), next16, 0.11);
-    next16 += spb; step16++;
+
+  var LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26];
+  var CALLS = ['WIGGLE!', 'HA!', 'BOOM!', 'YEAH!', 'OO LA LA!'];
+
+  /* ---------- three.js core ---------- */
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(BG);
+  scene.fog = null;
+
+  var camera = new THREE.PerspectiveCamera(46, W / H, 0.1, 120);
+  camera.position.set(0, 3.2, 7.6);
+  camera.lookAt(0, 1.35, -1);
+
+  var renderer = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(W, H, false);
+
+  var raycaster = new THREE.Raycaster();
+  var floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  var tmpVec = new THREE.Vector3();
+  var dummy = new THREE.Object3D();
+  var offsetMat = new THREE.Matrix4();
+  var accentMat = new THREE.Matrix4();
+  var colVec = new THREE.Color();
+
+  scene.add(new THREE.HemisphereLight(0x9AA0C8, 0x1C1B34, 0.62));
+  var keyLight = new THREE.DirectionalLight(0xFFFFFF, 0.82);
+  keyLight.position.set(4, 9, 6);
+  scene.add(keyLight);
+  var rimLight = new THREE.PointLight(BLUE, 0.5, 28);
+  rimLight.position.set(-4, 3, -5);
+  scene.add(rimLight);
+
+  function makeToonGradient() {
+    var steps = new Uint8Array([70, 150, 235]);
+    var tex = new THREE.DataTexture(steps, steps.length, 1, THREE.RedFormat);
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
   }
-}
+  var toonGradient = makeToonGradient();
 
-/* ---------- sprites (pre-rendered bald wiggler) ---------- */
-var SPR = {};
-function rr(g, x, y, w, h, r) {
-  g.beginPath();
-  g.moveTo(x + r, y);
-  g.arcTo(x + w, y, x + w, y + h, r);
-  g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r);
-  g.arcTo(x, y, x + w, y, r);
-  g.closePath();
-}
-function limb(g, x1, y1, x2, y2, w, col) {
-  g.lineCap = 'round';
-  g.strokeStyle = INK; g.lineWidth = w + 6;
-  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-  g.strokeStyle = col; g.lineWidth = w;
-  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-}
-function drawPose(g, move, frame, acc) {
-  var sq = frame === 0 ? 0 : 1; /* 0 squash / 1 stretch */
-  var torsoX, torsoY, torsoW, torsoH, headY, lean = 0, armL, armR;
-  if (move === 0) {           /* BOUNCE */
-    torsoX = 20 + sq; torsoY = 31 - sq * 3; torsoW = 36 - sq * 2; torsoH = 28 + sq * 4;
-    headY = 17 + sq * 2;
-    armL = [26, torsoY + 8, 20, torsoY + 22];
-    armR = [50, torsoY + 8, 56, torsoY + 22];
-  } else if (move === 1) {    /* WAVE */
-    torsoX = 20; torsoY = 30; torsoW = 36; torsoH = 29; headY = 17;
-    armL = [26, 38, 20, 48];
-    armR = [50, 36, 58, frame ? 11 : 19];
-  } else if (move === 2) {    /* SWAY */
-    lean = frame ? 3 : -3;
-    torsoX = 20 + lean; torsoY = 30; torsoW = 36; torsoH = 29; headY = 17;
-    armL = [26 + lean, 36, 18 + lean, 44];
-    armR = [50 + lean, 36, 58 + lean, 44];
-  } else {                    /* SPIN */
-    torsoX = 20 - sq * 2; torsoY = 30 + sq * 2; torsoW = 36 + sq * 4; torsoH = 29 - sq * 3;
-    headY = 17;
-    armL = [26, 37, 16, 34];
-    armR = [50, 37, 60, 34];
+  /* ---------- low-poly geometry merge ---------- */
+  function mergeGeoms(parts) {
+    var pos = [], nor = [], col = [];
+    var m = new THREE.Matrix4(), e = new THREE.Euler();
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      var g = p.geo.index ? p.geo.toNonIndexed() : p.geo.clone();
+      e.set(p.rot ? (p.rot[0] || 0) : 0, p.rot ? (p.rot[1] || 0) : 0, p.rot ? (p.rot[2] || 0) : 0);
+      m.makeRotationFromEuler(e);
+      m.setPosition(p.pos.x || 0, p.pos.y || 0, p.pos.z || 0);
+      g.applyMatrix4(m);
+      var pa = g.attributes.position.array;
+      var na = g.attributes.normal.array;
+      for (var j = 0; j < pa.length; j++) { pos.push(pa[j]); nor.push(na[j]); }
+      var c = p.color;
+      for (var k = 0; k < pa.length / 3; k++) { col.push(c.r, c.g, c.b); }
+      g.dispose();
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    return geo;
   }
-  var cx = 38 + lean;
-  /* arms behind torso */
-  limb(g, armL[0], armL[1], armL[2], armL[3], 8, GREEN);
-  limb(g, armR[0], armR[1], armR[2], armR[3], 8, GREEN);
-  /* legs + shoes */
-  limb(g, 30, torsoY + torsoH - 8, 30, 78, 8, BLUE);
-  limb(g, 46, torsoY + torsoH - 8, 46, 78, 8, BLUE);
-  g.fillStyle = SHOE; g.strokeStyle = INK; g.lineWidth = 3.5;
-  rr(g, 22, 77, 15, 8, 3.5); g.fill(); g.stroke();
-  rr(g, 39, 77, 15, 8, 3.5); g.fill(); g.stroke();
-  /* torso */
-  g.fillStyle = GREEN; g.strokeStyle = INK; g.lineWidth = 4;
-  rr(g, torsoX, torsoY + 12, torsoW, torsoH, 9); g.fill(); g.stroke();
-  /* head + face */
-  g.fillStyle = SKIN; g.strokeStyle = INK; g.lineWidth = 4;
-  g.beginPath(); g.arc(cx, headY, 14, 0, Math.PI * 2); g.fill(); g.stroke();
-  g.fillStyle = INK;
-  g.beginPath(); g.arc(cx - 5, headY - 2, 2.2, 0, 6.3); g.fill();
-  g.beginPath(); g.arc(cx + 5, headY - 2, 2.2, 0, 6.3); g.fill();
-  g.strokeStyle = INK; g.lineWidth = 2.6;
-  g.beginPath(); g.arc(cx, headY + 5, 5, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
-  /* accessories */
-  if (acc === 1) {            /* party hat */
-    g.fillStyle = YEL; g.strokeStyle = INK; g.lineWidth = 3.5;
-    g.beginPath();
-    g.moveTo(cx, headY - 22); g.lineTo(cx - 12, headY - 6); g.lineTo(cx + 12, headY - 6);
-    g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = RED;
-    g.beginPath(); g.arc(cx, headY - 23, 3.6, 0, 6.3); g.fill(); g.stroke();
-  } else if (acc === 2) {     /* shades */
-    g.fillStyle = INK;
-    rr(g, cx - 13, headY - 7, 26, 8, 3); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.45)';
-    g.fillRect(cx - 10, headY - 6, 5, 2);
-  } else if (acc === 3) {     /* crown */
-    g.fillStyle = YEL; g.strokeStyle = INK; g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(cx - 13, headY - 8);
-    g.lineTo(cx - 9, headY - 19); g.lineTo(cx - 4.5, headY - 11);
-    g.lineTo(cx, headY - 21); g.lineTo(cx + 4.5, headY - 11);
-    g.lineTo(cx + 9, headY - 19); g.lineTo(cx + 13, headY - 8);
-    g.closePath(); g.fill(); g.stroke();
+
+  function makeDancerGeometry() {
+    return mergeGeoms([
+      { geo: new THREE.BoxGeometry(0.18, 0.62, 0.18), color: C_BLUE, pos: { x: -0.15, y: 0.33, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.18, 0.62, 0.18), color: C_BLUE, pos: { x: 0.15, y: 0.33, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.25, 0.12, 0.32), color: C_SHOE, pos: { x: -0.15, y: 0.06, z: 0.05 } },
+      { geo: new THREE.BoxGeometry(0.25, 0.12, 0.32), color: C_SHOE, pos: { x: 0.15, y: 0.06, z: 0.05 } },
+      { geo: new THREE.BoxGeometry(0.14, 0.52, 0.14), color: C_GREEN, pos: { x: -0.36, y: 1.06, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.14, 0.52, 0.14), color: C_GREEN, pos: { x: 0.36, y: 1.06, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.58, 0.62, 0.36), color: C_GREEN, pos: { x: 0, y: 1.04, z: 0 } },
+      { geo: new THREE.SphereGeometry(0.34, 18, 14), color: C_SKIN, pos: { x: 0, y: 1.56, z: 0 } },
+      { geo: new THREE.SphereGeometry(0.052, 8, 6), color: C_INK, pos: { x: -0.12, y: 1.62, z: 0.29 } },
+      { geo: new THREE.SphereGeometry(0.052, 8, 6), color: C_INK, pos: { x: 0.12, y: 1.62, z: 0.29 } },
+      { geo: new THREE.BoxGeometry(0.13, 0.05, 0.04), color: C_RED, pos: { x: 0, y: 1.43, z: 0.29 } }
+    ]);
   }
-}
-function getSpr(move, frame, acc, face) {
-  var k = move + '|' + frame + '|' + acc + '|' + face;
-  var s = SPR[k];
-  if (s) return s;
-  var cv = document.createElement('canvas');
-  cv.width = 76; cv.height = 92;
-  var g = cv.getContext('2d');
-  if (face === -1) { g.translate(76, 0); g.scale(-1, 1); }
-  drawPose(g, move, frame, acc);
-  SPR[k] = cv;
-  return cv;
-}
 
-/* ---------- state ---------- */
-var state = 'title'; /* title | play | done */
-var dancers = [], bands = [[], [], []];
-var count = 0, best = 0, level = 0, frenzy = 0, lastTapT = -9, tGlobal = 0;
-var flash = 0, dragging = false, lastPt = null, hintPulse = 0, callT = 2;
-var sparkles = [], confetti = [], floaters = [];
-var MAXD = 2000;
-var LADDER = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26];
-var CALLS = ['WIGGLE!', 'HA!', 'BOOM!', 'YEAH!', 'OO LA LA!'];
+  function makeHatGeometry() {
+    return mergeGeoms([
+      { geo: new THREE.ConeGeometry(0.2, 0.4, 12), color: C_YEL, pos: { x: 0, y: 0, z: 0 } },
+      { geo: new THREE.SphereGeometry(0.06, 8, 6), color: C_RED, pos: { x: 0, y: 0.22, z: 0 } }
+    ]);
+  }
+  function makeCrownGeometry() {
+    return mergeGeoms([
+      { geo: new THREE.BoxGeometry(0.32, 0.08, 0.32), color: C_YEL, pos: { x: 0, y: 0, z: 0 } },
+      { geo: new THREE.ConeGeometry(0.05, 0.14, 6), color: C_YEL, pos: { x: -0.11, y: 0.09, z: 0 } },
+      { geo: new THREE.ConeGeometry(0.05, 0.14, 6), color: C_YEL, pos: { x: 0, y: 0.1, z: 0 } },
+      { geo: new THREE.ConeGeometry(0.05, 0.14, 6), color: C_YEL, pos: { x: 0.11, y: 0.09, z: 0 } }
+    ]);
+  }
+  function makeShadesGeometry() {
+    return mergeGeoms([
+      { geo: new THREE.BoxGeometry(0.16, 0.14, 0.06), color: C_INK, pos: { x: -0.13, y: 0, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.16, 0.14, 0.06), color: C_INK, pos: { x: 0.13, y: 0, z: 0 } },
+      { geo: new THREE.BoxGeometry(0.2, 0.035, 0.03), color: C_INK, pos: { x: 0, y: -0.01, z: -0.02 } }
+    ]);
+  }
 
-var $ = function (id) { return document.getElementById(id); };
-var cntEl = $('cnt'), bestEl = $('best'), titleBestEl = $('titleBest');
+  var dancerGeo = makeDancerGeometry();
+  var hatGeo = makeHatGeometry();
+  var crownGeo = makeCrownGeometry();
+  var shadesGeo = makeShadesGeometry();
 
-function loadBest() {
-  try { best = parseInt(localStorage.getItem('wiggle_best') || '0', 10) || 0; } catch (e) { best = 0; }
-  bestEl.textContent = 'BEST ' + pad(best);
-  titleBestEl.textContent = 'BEST ' + pad(best);
-}
-function pad(n) { return ('0000' + n).slice(-4); }
-function saveBest() {
-  if (count > best) {
-    best = count;
-    try { localStorage.setItem('wiggle_best', String(best)); } catch (e) {}
+  var bodyToonMat = new THREE.MeshToonMaterial({ color: 0xFFFFFF, gradientMap: toonGradient, vertexColors: true });
+  var floorToonMat = new THREE.MeshToonMaterial({ color: 0xFFFFFF, gradientMap: toonGradient });
+
+  var bodyMesh = new THREE.InstancedMesh(dancerGeo, bodyToonMat, MAXD);
+  bodyMesh.frustumCulled = false;
+  bodyMesh.count = 0;
+  scene.add(bodyMesh);
+
+  var hatMesh = new THREE.InstancedMesh(hatGeo, bodyToonMat, MAXD);
+  var crownMesh = new THREE.InstancedMesh(crownGeo, bodyToonMat, MAXD);
+  var shadesMesh = new THREE.InstancedMesh(shadesGeo, bodyToonMat, MAXD);
+  [hatMesh, crownMesh, shadesMesh].forEach(function (m) {
+    m.frustumCulled = false; m.count = 0; scene.add(m);
+  });
+
+  var sparkGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+  var confGeo = new THREE.BoxGeometry(0.13, 0.17, 0.05);
+  var partMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+  var sparkMesh = new THREE.InstancedMesh(sparkGeo, partMat, 300);
+  var confMesh = new THREE.InstancedMesh(confGeo, partMat, 320);
+  [sparkMesh, confMesh].forEach(function (m) {
+    m.frustumCulled = false; m.count = 0; scene.add(m);
+    for (var i = 0; i < m.count; i++) { m.setColorAt(i, C_WHITE); }
+  });
+
+  /* ---------- 3D disco floor + ball ---------- */
+  var FLOOR_W = 30, FLOOR_D = 26, FLOOR_COLS = 15, FLOOR_ROWS = 13;
+  var tileGeo = new THREE.BoxGeometry(FLOOR_W / FLOOR_COLS, 0.14, FLOOR_D / FLOOR_ROWS);
+  var floorMesh = new THREE.InstancedMesh(tileGeo, floorToonMat, FLOOR_COLS * FLOOR_ROWS);
+  floorMesh.frustumCulled = false;
+  var floorIdx = 0;
+  for (var fr = 0; fr < FLOOR_ROWS; fr++) {
+    for (var fc = 0; fc < FLOOR_COLS; fc++) {
+      var fx = -FLOOR_W / 2 + (FLOOR_W / FLOOR_COLS) * (fc + 0.5);
+      var fz = -FLOOR_D / 2 + (FLOOR_D / FLOOR_ROWS) * (fr + 0.5);
+      dummy.position.set(fx, -0.07, fz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      floorMesh.setMatrixAt(floorIdx++, dummy.matrix);
+    }
+  }
+  floorMesh.instanceMatrix.needsUpdate = true;
+  scene.add(floorMesh);
+
+  var ballPivot = new THREE.Object3D();
+  var rodGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.5, 6);
+  var rod = new THREE.Mesh(rodGeo, new THREE.MeshBasicMaterial({ color: INK }));
+  rod.position.y = 0.75;
+  ballPivot.add(rod);
+  var ballGeo = new THREE.IcosahedronGeometry(0.85, 1);
+  var ballMat = new THREE.MeshPhongMaterial({ color: 0xC9CFEE, shininess: 90, specular: 0xFFFFFF, flatShading: true });
+  var ball = new THREE.Mesh(ballGeo, ballMat);
+  ball.position.y = 0;
+  ballPivot.add(ball);
+  var ballLight = new THREE.PointLight(YEL, 0.9, 34);
+  ballLight.position.set(0, 0, 0);
+  ballPivot.add(ballLight);
+  scene.add(ballPivot);
+
+  var floorParity = -1;
+  function paintFloor() {
+    var pal = FLOOR_PAL[LEVELS[level].pal];
+    var parity = Math.floor(tGlobal * BPM / 60) % 2;
+    if (parity === floorParity) return;
+    floorParity = parity;
+    for (var i = 0; i < FLOOR_COLS * FLOOR_ROWS; i++) {
+      var r = Math.floor(i / FLOOR_COLS), c = i % FLOOR_COLS;
+      colVec.copy(((r + c + parity) % 2 === 0) ? pal[0] : pal[1]);
+      floorMesh.setColorAt(i, colVec);
+    }
+    floorMesh.instanceColor.needsUpdate = true;
+  }
+
+  /* ---------- audio (synth beat, no files) ---------- */
+  var AC = null, master = null, muted = false;
+  function audio() {
+    if (!AC) {
+      try {
+        AC = new (window.AudioContext || window.webkitAudioContext)();
+        master = AC.createGain(); master.gain.value = 0.3;
+        master.connect(AC.destination);
+      } catch (e) { AC = null; }
+    }
+    if (AC && AC.state === 'suspended') AC.resume();
+    return AC;
+  }
+  function blip(freq, when, dur, type, gain) {
+    if (!AC || muted) return;
+    var t = when || AC.currentTime;
+    var o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'triangle';
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain || 0.4, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12));
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + (dur || 0.12) + 0.05);
+  }
+  function kick(t) {
+    if (!AC || muted) return;
+    var o = AC.createOscillator(), g = AC.createGain();
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(0.8, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.17);
+  }
+  function hat(t) { blip(5200, t, 0.03, 'square', 0.07); }
+  function bass(f, t, dur) { blip(f, t, dur, 'sawtooth', 0.14); }
+  var step16 = 0, next16 = 0;
+  function sched() {
+    if (!AC || muted) return;
+    var spb = 60 / BPM / 4;
+    if (next16 < AC.currentTime) next16 = AC.currentTime + 0.02;
+    var ahead = AC.currentTime + 0.16;
+    var bars = [0, 0, 5, 3];
+    while (next16 < ahead) {
+      var s = step16 % 16;
+      if (s % 4 === 0) kick(next16);
+      if (s % 2 === 1) hat(next16);
+      if (s % 2 === 0) bass(110 * Math.pow(2, bars[Math.floor(step16 / 16) % 4] / 12), next16, 0.11);
+      next16 += spb; step16++;
+    }
+  }
+
+  /* ---------- state ---------- */
+  var state = 'title'; /* title | play | done */
+  var dancers = [], sparkles = [], confetti = [], floaters = [];
+  var count = 0, best = 0, level = 0, frenzy = 0, lastTapT = -9, tGlobal = 0;
+  var flash = 0, dragging = false, lastPtNdc = null, callT = 2;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var cntEl = $('cnt'), bestEl = $('best'), titleBestEl = $('titleBest');
+  var floatLayer = $('floaters'), flashEl = $('flash');
+
+  function loadBest() {
+    try { best = parseInt(localStorage.getItem('wiggle_best') || '0', 10) || 0; } catch (e) { best = 0; }
     bestEl.textContent = 'BEST ' + pad(best);
     titleBestEl.textContent = 'BEST ' + pad(best);
   }
-}
-function updateHud() { cntEl.textContent = pad(count); }
-
-function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
-  W = window.innerWidth; H = window.innerHeight;
-  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
-  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  floorTop = H * 0.5;
-  bandY[0] = floorTop + (H - floorTop) * 0.18;
-  bandY[1] = floorTop + (H - floorTop) * 0.44;
-  bandY[2] = floorTop + (H - floorTop) * 0.70;
-}
-window.addEventListener('resize', resize);
-resize();
-
-/* ---------- spawning ---------- */
-function pickAcc() {
-  var r = Math.random();
-  if (level >= 7 && r < 0.10) return 3;
-  if (level >= 4 && r < 0.26) return 2;
-  if (r < 0.42) return 1;
-  return 0;
-}
-function spawnDancer(x, y, demo) {
-  if (!demo && dancers.length >= MAXD) return null;
-  var band = demo ? 1 : (y < bandY[0] ? 0 : (y < bandY[1] ? 1 : 2));
-  var px = Math.max(26, Math.min(W - 26, x));
-  var d = {
-    x: px, band: band, y: bandY[band], s: bandS[band],
-    face: Math.random() < 0.5 ? -1 : 1,
-    acc: pickAcc(), jt: 0.99, jd: 0.34, spinT: 0, demo: !!demo
-  };
-  if (demo) { d.jt = 0; }
-  dancers.push(d);
-  bands[band].push(d);
-  return d;
-}
-function burstSparkles(x, y, n, col) {
-  if (sparkles.length > 160) return;
-  for (var i = 0; i < n; i++) {
-    sparkles.push({
-      x: x, y: y,
-      vx: (Math.random() - 0.5) * 160, vy: -Math.random() * 130 - 20,
-      t: 0, life: 0.4 + Math.random() * 0.25, col: col || YEL
-    });
-  }
-}
-function confettiBurst(x, y, n) {
-  if (confetti.length > 220) return;
-  var cols = [YEL, GREEN, BLUE, RED, '#FFFFFF'];
-  for (var i = 0; i < n; i++) {
-    confetti.push({
-      x: x, y: y,
-      vx: (Math.random() - 0.5) * 420, vy: -Math.random() * 380 - 90,
-      rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12,
-      t: 0, life: 1.1 + Math.random() * 0.7,
-      col: cols[(Math.random() * cols.length) | 0]
-    });
-  }
-}
-function floater(x, y, txt, col, life) {
-  if (floaters.length > 20) floaters.shift();
-  floaters.push({ x: x, y: y, txt: txt, col: col || '#FFFFFF', t: 0, life: life || 1.1 });
-}
-function soloHit(x, y) {
-  for (var i = dancers.length - 1; i >= 0 && i >= dancers.length - 200; i--) {
-    var d = dancers[i];
-    if (d.demo) continue;
-    var hx = d.x, hy = d.y - 52 * d.s;
-    if (Math.abs(x - hx) < 38 * d.s && Math.abs(y - hy) < 58 * d.s) return d;
-  }
-  return null;
-}
-function summonAt(x, y) {
-  var d = spawnDancer(x, y);
-  if (!d) return;
-  count++;
-  var f = 220 * Math.pow(2, LADDER[count % LADDER.length] / 12);
-  audio();
-  blip(f, 0, 0.11, 'triangle', 0.5);
-  burstSparkles(d.x, d.y - 60 * d.s, 5);
-  checkLevel();
-  updateHud();
-}
-function tapAt(x, y) {
-  if (state !== 'play') return;
-  var now = tGlobal;
-  if (now - lastTapT < 0.33) frenzy = Math.min(1.5, frenzy + 0.34);
-  else frenzy = Math.max(0, frenzy - 0.6);
-  lastTapT = now;
-  var s = soloHit(x, y);
-  if (s) {
-    s.spinT = 0.5; s.jt = 0; s.jd = 0.3;
-    burstSparkles(s.x, s.y - 60 * s.s, 9, '#FFFFFF');
-    floater(s.x, s.y - 105 * s.s, 'NICE MOVE!', YEL, 0.8);
-    blip(1180, 0, 0.08, 'square', 0.28);
-  }
-  if (frenzy >= 1) {
-    frenzy = 0.3;
-    flash = Math.max(flash, 0.4);
-    floater(x, y - 110, 'FRENZY!', YEL, 0.8);
-    blip(880, 0, 0.14, 'sawtooth', 0.3);
-    for (var i = 0; i < 4; i++) summonAt(x + (Math.random() - 0.5) * 150, y + (Math.random() - 0.5) * 60);
-    confettiBurst(x, y - 60, 18);
-  }
-  summonAt(x, y);
-}
-function pos(e) {
-  var r = cvs.getBoundingClientRect();
-  var sx = r.width ? W / r.width : 1;
-  var sy = r.height ? H / r.height : 1;
-  return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
-}
-cvs.addEventListener('pointerdown', function (e) {
-  if (state !== 'play') return;
-  e.preventDefault();
-  audio();
-  var p = pos(e);
-  tapAt(p.x, p.y);
-  lastPt = p; dragging = true;
-});
-cvs.addEventListener('pointermove', function (e) {
-  if (state !== 'play' || !dragging) return;
-  e.preventDefault();
-  var p = pos(e);
-  var dx = p.x - lastPt.x, dy = p.y - lastPt.y;
-  if (dx * dx + dy * dy > 34 * 34) {
-    tapAt(p.x, p.y);
-    lastPt = p;
-  }
-});
-function endPtr() { dragging = false; lastPt = null; }
-cvs.addEventListener('pointerup', endPtr);
-cvs.addEventListener('pointercancel', endPtr);
-cvs.addEventListener('pointerleave', endPtr);
-
-/* ---------- levels ---------- */
-function checkLevel() {
-  var nl = 0;
-  for (var i = 0; i < LEVELS.length; i++) if (count >= LEVELS[i].at) nl = i;
-  if (nl > level) {
-    level = nl;
-    celebrate(nl);
-  } else if (count > 0 && count % 100 === 0) {
-    floater(W / 2, H * 0.32, count + ' WIGGLERS!', YEL, 1.2);
-    confettiBurst(W / 2, H * 0.4, 30);
-    blip(990, 0, 0.12, 'triangle', 0.3);
-  }
-}
-function celebrate(nl) {
-  var L = LEVELS[nl];
-  flash = Math.max(flash, 0.5);
-  floater(W / 2, H * 0.3, L.msg, YEL, 1.8);
-  floater(W / 2, H * 0.3 + 34, 'NEW MOVE: ' + MOVES[L.move], '#FFFFFF', 1.8);
-  confettiBurst(W / 2, H * 0.38, 70);
-  audio();
-  var chord = [0, 4, 7, 12, 16];
-  for (var i = 0; i < chord.length; i++) blip(220 * Math.pow(2, chord[i] / 12), AC ? AC.currentTime + i * 0.07 : 0, 0.16, 'triangle', 0.34);
-  saveBest();
-  if (nl === LEVELS.length - 1) winGame();
-}
-function winGame() {
-  state = 'done';
-  saveBest();
-  $('doneStats').innerHTML = 'YOU THREW A <b>' + count + '</b>-WIGGLE PARTY<br>IN <b>' + Math.round(tGlobal) + '</b> SECONDS';
-  $('doneOv').classList.add('show');
-}
-
-/* ---------- flow ---------- */
-function resetGame() {
-  dancers = []; bands = [[], [], []];
-  count = 0; level = 0; frenzy = 0; lastTapT = -9;
-  sparkles = []; confetti = []; floaters = [];
-  dragging = false; lastPt = null;
-  state = 'play';
-  document.body.classList.add('ingame');
-  updateHud();
-}
-function demoParty() {
-  for (var i = 0; i < 4; i++) spawnDancer(70 + i * ((W - 140) / 3), H * 0.72, true);
-}
-demoParty();
-
-$('startBtn').addEventListener('click', function () {
-  audio();
-  $('title').classList.remove('show');
-  resetGame();
-});
-$('againBtn').addEventListener('click', function () {
-  audio();
-  $('doneOv').classList.remove('show');
-  resetGame();
-});
-$('contBtn2').addEventListener('click', function () {
-  audio();
-  $('doneOv').classList.remove('show');
-  state = 'play';
-});
-$('shareBtn').addEventListener('click', function () {
-  var txt = 'I just threw a ' + count + '-wiggle party in WIGGLE PARTY!';
-  try {
-    if (navigator.share) { navigator.share({ title: 'WIGGLE PARTY', text: txt }); return; }
-  } catch (e) {}
-  floater(W / 2, H * 0.4, 'SCREENSHOT IT AND SHARE!', YEL, 1.6);
-});
-$('mute').addEventListener('click', function () {
-  muted = !muted;
-  this.textContent = muted ? 'SND OFF' : 'SND ON';
-  if (!muted) { audio(); next16 = 0; }
-});
-loadBest();
-updateHud();
-
-/* ---------- update ---------- */
-function update(dt) {
-  tGlobal += dt;
-  var i, d;
-  for (i = 0; i < dancers.length; i++) {
-    d = dancers[i];
-    if (d.jt < d.jd) d.jt += dt;
-    if (d.spinT > 0) d.spinT -= dt;
-  }
-  for (i = sparkles.length - 1; i >= 0; i--) {
-    var sp = sparkles[i];
-    sp.t += dt;
-    sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 520 * dt;
-    if (sp.t >= sp.life) sparkles.splice(i, 1);
-  }
-  for (i = confetti.length - 1; i >= 0; i--) {
-    var cf = confetti[i];
-    cf.t += dt;
-    cf.x += cf.vx * dt; cf.y += cf.vy * dt; cf.vy += 640 * dt; cf.rot += cf.vr * dt;
-    if (cf.t >= cf.life) confetti.splice(i, 1);
-  }
-  for (i = floaters.length - 1; i >= 0; i--) {
-    var fl = floaters[i];
-    fl.t += dt; fl.y -= 26 * dt;
-    if (fl.t >= fl.life) floaters.splice(i, 1);
-  }
-  if (flash > 0) flash = Math.max(0, flash - dt * 1.6);
-  if (state === 'play' && count > 0) {
-    callT -= dt;
-    if (callT <= 0) {
-      callT = 2 + Math.random();
-      var c = dancers[(Math.random() * dancers.length) | 0];
-      if (c && !c.demo) floater(c.x, c.y - 110 * c.s, CALLS[(Math.random() * CALLS.length) | 0], '#FFFFFF', 0.9);
+  function pad(n) { return ('0000' + n).slice(-4); }
+  function saveBest() {
+    if (count > best) {
+      best = count;
+      try { localStorage.setItem('wiggle_best', String(best)); } catch (e) {}
+      bestEl.textContent = 'BEST ' + pad(best);
+      titleBestEl.textContent = 'BEST ' + pad(best);
     }
   }
-  sched();
-}
+  function updateHud() { cntEl.textContent = pad(count); }
 
-/* ---------- draw ---------- */
-function beatParity(fast) {
-  var bps = BPM / 60;
-  if (fast) bps *= 2;
-  return Math.floor(tGlobal * bps) % 2;
-}
-function drawDiscoBall() {
-  var bx = W / 2 + Math.sin(tGlobal * 0.5) * Math.min(90, W * 0.22);
-  var by = 58;
-  ctx.strokeStyle = INK; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, by); ctx.stroke();
-  var r = 24, p = beatParity(false);
-  ctx.fillStyle = '#B9C0E8'; ctx.strokeStyle = INK; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#8E96C8';
-  for (var gx = -2; gx <= 2; gx++) for (var gy = -2; gy <= 2; gy++) {
-    if ((gx + gy) % 2 === p) ctx.fillRect(bx + gx * 9 - 3.5, by + gy * 9 - 3.5, 7, 7);
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth; H = window.innerHeight;
+    renderer.setPixelRatio(DPR);
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
   }
-  if (p) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(bx, by, r + 6, 0, Math.PI * 2); ctx.stroke();
+  window.addEventListener('resize', resize);
+
+  /* ---------- spawning ---------- */
+  function pickAcc() {
+    var r = Math.random();
+    if (level >= 7 && r < 0.10) return 3;
+    if (level >= 4 && r < 0.26) return 2;
+    if (r < 0.42) return 1;
+    return 0;
   }
-}
-function drawFloor() {
-  var pal = PAL[LEVELS[level].pal];
-  var p = beatParity(false);
-  var tile = 64;
-  var cols = Math.ceil(W / tile) + 1;
-  var rows = Math.ceil((H - floorTop) / tile) + 1;
-  for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
-    ctx.fillStyle = ((r + c + p) % 2 === 0) ? pal[0] : pal[1];
-    ctx.fillRect(c * tile, floorTop + r * tile, tile, tile);
+  function scaleForZ(z) {
+    return Math.max(0.4, Math.min(1.15, 0.42 + (z + 12) / 20));
   }
-  ctx.fillStyle = INK;
-  ctx.fillRect(0, floorTop - 4, W, 4);
-  if (frenzy >= 1) {
-    ctx.strokeStyle = YEL; ctx.lineWidth = 6;
-    ctx.strokeRect(3, floorTop - 4 + 3, W - 6, H - floorTop);
+  function spawnDancer(x, z, demo) {
+    if (!demo && dancers.length >= MAXD) return null;
+    var xClamped = Math.max(-11, Math.min(11, x));
+    var zClamped = Math.max(-12, Math.min(8, z));
+    var d = {
+      x: xClamped, z: zClamped, s: scaleForZ(zClamped),
+      yaw: (Math.random() - 0.5) * 0.5, spinA: 0, spinT: 0, spinFrom: 0,
+      acc: pickAcc(), jt: 0.99, jd: 0.34,
+      phase: Math.random() * 6.283, demo: !!demo
+    };
+    dancers.push(d);
+    return d;
   }
-}
-function drawDancers() {
-  var mv = LEVELS[level].move;
-  for (var b = 0; b < 3; b++) {
-    var arr = bands[b];
-    for (var i = 0; i < arr.length; i++) {
-      var d = arr[i];
-      var spin = d.spinT > 0;
-      var move = spin ? 3 : mv;
-      var fr = (beatParity(spin) + d.band) % 2;
-      var spr = getSpr(move, fr, d.acc, d.face);
-      var s = d.s;
-      var jy = d.jt < d.jd ? -Math.sin(Math.PI * d.jt / d.jd) * 24 * s : 0;
-      /* shadow */
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.beginPath();
-      ctx.ellipse(d.x, d.y + 4, 20 * s, 6 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.drawImage(spr, d.x - 38 * s, d.y - 86 * s + jy, 76 * s, 92 * s);
+  function burstSparkles(x, y, z, n, col) {
+    if (sparkles.length > 240) return;
+    for (var i = 0; i < n; i++) {
+      sparkles.push({
+        x: x, y: y, z: z,
+        vx: (Math.random() - 0.5) * 1.6, vy: Math.random() * 1.5 + 0.5, vz: (Math.random() - 0.5) * 1.6,
+        rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12,
+        t: 0, life: 0.45 + Math.random() * 0.3, col: col || C_YEL
+      });
     }
   }
-}
-function drawParticles() {
-  var i;
-  for (i = 0; i < sparkles.length; i++) {
-    var sp = sparkles[i];
-    var a = 1 - sp.t / sp.life;
-    ctx.strokeStyle = sp.col; ctx.globalAlpha = a; ctx.lineWidth = 3;
-    var r = 3 + (1 - a) * 5;
-    ctx.beginPath();
-    ctx.moveTo(sp.x - r, sp.y); ctx.lineTo(sp.x + r, sp.y);
-    ctx.moveTo(sp.x, sp.y - r); ctx.lineTo(sp.x, sp.y + r);
-    ctx.stroke();
+  function confettiBurst(x, y, z, n) {
+    if (confetti.length > 260) return;
+    var cols = [C_YEL, C_GREEN, C_BLUE, C_RED, C_WHITE];
+    for (var i = 0; i < n; i++) {
+      confetti.push({
+        x: x, y: y, z: z,
+        vx: (Math.random() - 0.5) * 5.2, vy: Math.random() * 4.4 + 1.8, vz: (Math.random() - 0.5) * 2.2,
+        rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12,
+        t: 0, life: 1.1 + Math.random() * 0.8,
+        col: cols[(Math.random() * cols.length) | 0]
+      });
+    }
   }
-  ctx.globalAlpha = 1;
-  for (i = 0; i < confetti.length; i++) {
-    var cf = confetti[i];
-    ctx.save();
-    ctx.translate(cf.x, cf.y); ctx.rotate(cf.rot);
-    ctx.globalAlpha = Math.max(0, 1 - cf.t / cf.life);
-    ctx.fillStyle = cf.col;
-    ctx.fillRect(-4, -6, 8, 12);
-    ctx.restore();
+  function floater(sx, sy, txt, col, life) {
+    if (floaters.length > 24) {
+      var old = floaters.shift();
+      if (old && old.el && old.el.parentNode) old.el.parentNode.removeChild(old.el);
+    }
+    var el = document.createElement('div');
+    el.className = 'floater';
+    el.textContent = txt;
+    el.style.color = col || '#FFFFFF';
+    el.style.left = sx + 'px';
+    el.style.top = sy + 'px';
+    floatLayer.appendChild(el);
+    floaters.push({ el: el, x: sx, y: sy, t: 0, life: life || 1.1 });
   }
-  ctx.globalAlpha = 1;
-}
-function drawFloaters() {
-  ctx.textAlign = 'center';
-  for (var i = 0; i < floaters.length; i++) {
-    var fl = floaters[i];
-    var a = 1 - fl.t / fl.life;
-    ctx.globalAlpha = Math.min(1, a * 2.2);
-    ctx.font = '900 22px "Arial Black", Arial, sans-serif';
-    ctx.lineWidth = 5; ctx.strokeStyle = INK;
-    ctx.strokeText(fl.txt, fl.x, fl.y);
-    ctx.fillStyle = fl.col;
-    ctx.fillText(fl.txt, fl.x, fl.y);
+  function worldToScreen(x, y, z) {
+    tmpVec.set(x, y, z).project(camera);
+    return { x: (tmpVec.x * 0.5 + 0.5) * W, y: (-tmpVec.y * 0.5 + 0.5) * H, z: tmpVec.z };
   }
-  ctx.globalAlpha = 1;
-}
-function drawHint() {
-  if (state !== 'play' || count >= 4) return;
-  hintPulse += 0.05;
-  var a = 0.55 + Math.sin(hintPulse) * 0.35;
-  ctx.globalAlpha = a;
-  ctx.textAlign = 'center';
-  ctx.font = '900 26px "Arial Black", Arial, sans-serif';
-  ctx.lineWidth = 5; ctx.strokeStyle = INK;
-  ctx.strokeText('TAP THE FLOOR!', W / 2, H * 0.36);
-  ctx.fillStyle = YEL;
-  ctx.fillText('TAP THE FLOOR!', W / 2, H * 0.36);
-  ctx.font = '900 13px "Arial Black", Arial, sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeText('SUMMON YOUR FIRST WIGGLER', W / 2, H * 0.36 + 26);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillText('SUMMON YOUR FIRST WIGGLER', W / 2, H * 0.36 + 26);
-  ctx.globalAlpha = 1;
-}
-function draw() {
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, W, H);
-  drawDiscoBall();
-  drawFloor();
-  drawDancers();
-  drawParticles();
-  drawFloaters();
-  drawHint();
-  if (flash > 0) {
-    ctx.fillStyle = 'rgba(255,255,255,' + flash.toFixed(3) + ')';
-    ctx.fillRect(0, 0, W, H);
+  function soloHit(x, y) {
+    for (var i = dancers.length - 1; i >= 0 && i >= dancers.length - 220; i--) {
+      var d = dancers[i];
+      if (d.demo) continue;
+      var p = worldToScreen(d.x, 1.56 * d.s, d.z);
+      if (Math.abs(x - p.x) < 40 * d.s && Math.abs(y - p.y) < 48 * d.s) return d;
+    }
+    return null;
   }
-}
+  function summonAt(x, z) {
+    var d = spawnDancer(x, z);
+    if (!d) return;
+    count++;
+    var f = 220 * Math.pow(2, LADDER[count % LADDER.length] / 12);
+    audio();
+    blip(f, 0, 0.11, 'triangle', 0.5);
+    burstSparkles(d.x, 1.1 * d.s, d.z, 5, C_YEL);
+    checkLevel();
+    updateHud();
+  }
+  function tapAtWorld(x, z, sx, sy) {
+    if (state !== 'play') return;
+    var now = tGlobal;
+    if (now - lastTapT < 0.33) frenzy = Math.min(1.5, frenzy + 0.34);
+    else frenzy = Math.max(0, frenzy - 0.6);
+    lastTapT = now;
 
-/* ---------- main loop ---------- */
-function loop(now) {
+    var s = soloHit(sx, sy);
+    if (s) {
+      s.spinT = 0.5; s.spinFrom = s.spinA; s.jt = 0; s.jd = 0.3;
+      var sp = worldToScreen(s.x, 2.2 * s.s, s.z);
+      burstSparkles(s.x, 1.7 * s.s, s.z, 9, C_WHITE);
+      floater(sp.x, sp.y, 'NICE MOVE!', '#F5D93F', 0.8);
+      blip(1180, 0, 0.08, 'square', 0.28);
+    }
+
+    if (frenzy >= 1) {
+      frenzy = 0.3;
+      flash = Math.max(flash, 0.4);
+      var fp = worldToScreen(x, 2.4 * scaleForZ(z), z);
+      floater(fp.x, fp.y, 'FRENZY!', '#F5D93F', 0.8);
+      blip(880, 0, 0.14, 'sawtooth', 0.3);
+      for (var i = 0; i < 4; i++) summonAt(x + (Math.random() - 0.5) * 1.6, z + (Math.random() - 0.5) * 0.9);
+      confettiBurst(x, 1.8, z, 18);
+    }
+    summonAt(x, z);
+  }
+
+  function pointerWorld(e) {
+    var r = cvs.getBoundingClientRect();
+    var px = (e.clientX - r.left) * (W / r.width);
+    var py = (e.clientY - r.top) * (H / r.height);
+    raycaster.setFromCamera(new THREE.Vector2(px / W * 2 - 1, -(py / H) * 2 + 1), camera);
+    var hit = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(floorPlane, hit)) return null;
+    return { x: hit.x, y: hit.y, z: hit.z };
+  }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (state !== 'play') return;
+    e.preventDefault();
+    audio();
+    var hit = pointerWorld(e);
+    if (!hit) return;
+    var r = cvs.getBoundingClientRect();
+    var sx = (e.clientX - r.left) * (W / r.width);
+    var sy = (e.clientY - r.top) * (H / r.height);
+    tapAtWorld(hit.x, hit.z, sx, sy);
+    dragging = true;
+  });
+  cvs.addEventListener('pointermove', function (e) {
+    if (state !== 'play' || !dragging) return;
+    e.preventDefault();
+    var r = cvs.getBoundingClientRect();
+    var sx = (e.clientX - r.left) * (W / r.width);
+    var sy = (e.clientY - r.top) * (H / r.height);
+    if (!lastPtNdc) lastPtNdc = { x: sx, y: sy };
+    var dx = sx - lastPtNdc.x, dy = sy - lastPtNdc.y;
+    if (dx * dx + dy * dy > 34 * 34) {
+      var hit = pointerWorld(e);
+      if (hit) tapAtWorld(hit.x, hit.z, sx, sy);
+      lastPtNdc = { x: sx, y: sy };
+    }
+  });
+  function endPtr() { dragging = false; lastPtNdc = null; }
+  cvs.addEventListener('pointerup', endPtr);
+  cvs.addEventListener('pointercancel', endPtr);
+  cvs.addEventListener('pointerleave', endPtr);
+
+  /* ---------- levels / flow ---------- */
+  function checkLevel() {
+    var nl = 0;
+    for (var i = 0; i < LEVELS.length; i++) if (count >= LEVELS[i].at) nl = i;
+    if (nl > level) {
+      level = nl;
+      celebrate(nl);
+    } else if (count > 0 && count % 100 === 0) {
+      floater(W / 2, H * 0.32, count + ' WIGGLERS!', '#F5D93F', 1.2);
+      confettiBurst(0, 2.2, 2.5, 30);
+      blip(990, 0, 0.12, 'triangle', 0.3);
+    }
+  }
+  function celebrate(nl) {
+    var L = LEVELS[nl];
+    flash = Math.max(flash, 0.5);
+    floater(W / 2, H * 0.3, L.msg, '#F5D93F', 1.8);
+    floater(W / 2, H * 0.3 + 34, 'NEW MOVE: ' + MOVES[L.move], '#FFFFFF', 1.8);
+    confettiBurst(0, 2.3, 2.5, 70);
+    audio();
+    var chord = [0, 4, 7, 12, 16];
+    for (var i = 0; i < chord.length; i++) {
+      blip(220 * Math.pow(2, chord[i] / 12), AC ? AC.currentTime + i * 0.07 : 0, 0.16, 'triangle', 0.34);
+    }
+    saveBest();
+    if (nl === LEVELS.length - 1) winGame();
+  }
+  function winGame() {
+    state = 'done';
+    saveBest();
+    $('doneStats').innerHTML = 'YOU THREW A <b>' + count + '</b>-WIGGLE PARTY<br>IN <b>' + Math.round(tGlobal) + '</b> SECONDS';
+    $('doneOv').classList.add('show');
+  }
+  function resetGame() {
+    dancers = [];
+    count = 0; level = 0; frenzy = 0; lastTapT = -9;
+    sparkles = []; confetti = [];
+    while (floaters.length) {
+      var fl = floaters.pop();
+      if (fl.el && fl.el.parentNode) fl.el.parentNode.removeChild(fl.el);
+    }
+    dragging = false; lastPtNdc = null;
+    state = 'play';
+    document.body.classList.add('ingame');
+    updateHud();
+  }
+  function demoParty() {
+    dancers = [];
+    for (var i = 0; i < 4; i++) spawnDancer(-2.5 + i * 1.7, -0.6, true);
+  }
+  demoParty();
+
+  $('startBtn').addEventListener('click', function () {
+    audio();
+    $('title').classList.remove('show');
+    resetGame();
+  });
+  $('againBtn').addEventListener('click', function () {
+    audio();
+    $('doneOv').classList.remove('show');
+    resetGame();
+  });
+  $('contBtn2').addEventListener('click', function () {
+    audio();
+    $('doneOv').classList.remove('show');
+    state = 'play';
+  });
+  $('shareBtn').addEventListener('click', function () {
+    var txt = 'I just threw a ' + count + '-wiggle party in WIGGLE PARTY!';
+    try {
+      if (navigator.share) { navigator.share({ title: 'WIGGLE PARTY', text: txt }); return; }
+    } catch (e) {}
+    floater(W / 2, H * 0.4, 'SCREENSHOT IT AND SHARE!', '#F5D93F', 1.6);
+  });
+  $('mute').addEventListener('click', function () {
+    muted = !muted;
+    this.textContent = muted ? 'SND OFF' : 'SND ON';
+    if (!muted) { audio(); next16 = 0; }
+  });
+  loadBest();
+  updateHud();
+  paintFloor();
+
+  /* ---------- update ---------- */
+  function update(dt) {
+    tGlobal += dt;
+    var i, d;
+    var move = LEVELS[level].move;
+    var beatT = tGlobal * BPM / 60 * Math.PI;
+
+    for (i = 0; i < dancers.length; i++) {
+      d = dancers[i];
+      if (d.jt < d.jd) d.jt += dt;
+      if (d.spinT > 0) {
+        d.spinT -= dt;
+        var k = 1 - Math.max(0, d.spinT) / 0.5;
+        d.spinA = d.spinFrom + k * Math.PI * 2;
+      } else {
+        d.spinFrom = d.spinA;
+      }
+      if (move === 3) d.yaw += dt * (2.2 + level * 0.06);
+    }
+
+    for (i = sparkles.length - 1; i >= 0; i--) {
+      var sp = sparkles[i];
+      sp.t += dt;
+      sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.z += sp.vz * dt;
+      sp.vy += 5.2 * dt; sp.rot += sp.vr * dt;
+      if (sp.t >= sp.life) sparkles.splice(i, 1);
+    }
+    for (i = confetti.length - 1; i >= 0; i--) {
+      var cf = confetti[i];
+      cf.t += dt;
+      cf.x += cf.vx * dt; cf.y += cf.vy * dt; cf.z += cf.vz * dt;
+      cf.vy += 6.4 * dt; cf.rot += cf.vr * dt;
+      if (cf.t >= cf.life) confetti.splice(i, 1);
+    }
+    for (i = floaters.length - 1; i >= 0; i--) {
+      var fl = floaters[i];
+      fl.t += dt;
+      var a = Math.max(0, 1 - fl.t / fl.life);
+      fl.el.style.opacity = Math.min(1, a * 2.2);
+      fl.el.style.transform = 'translate(-50%,-50%) translateY(' + (-32 * fl.t) + 'px)';
+      if (fl.t >= fl.life) {
+        if (fl.el && fl.el.parentNode) fl.el.parentNode.removeChild(fl.el);
+        floaters.splice(i, 1);
+      }
+    }
+    if (flash > 0) {
+      flash = Math.max(0, flash - dt * 1.6);
+      flashEl.style.opacity = flash;
+    }
+    if (state === 'play' && count > 0) {
+      callT -= dt;
+      if (callT <= 0) {
+        callT = 2 + Math.random();
+        var c = dancers[(Math.random() * dancers.length) | 0];
+        if (c && !c.demo) {
+          var cp = worldToScreen(c.x, 2.1 * c.s, c.z);
+          floater(cp.x, cp.y, CALLS[(Math.random() * CALLS.length) | 0], '#FFFFFF', 0.9);
+        }
+      }
+    }
+    sched();
+  }
+
+  function updateInstances() {
+    var move = LEVELS[level].move;
+    var beatT = tGlobal * BPM / 60 * Math.PI;
+    var i, d;
+    var hi = 0, ci = 0, si = 0;
+    bodyMesh.count = Math.min(dancers.length, MAXD);
+    hatMesh.count = 0; crownMesh.count = 0; shadesMesh.count = 0;
+
+    for (i = 0; i < dancers.length; i++) {
+      d = dancers[i];
+      var ph = beatT + d.phase;
+      var bob = 0, roll = 0, pitch = 0, xoff = 0;
+      var sx = d.s, sy = d.s, sz = d.s;
+
+      if (move === 0) {           /* BOUNCE */
+        var bsn = Math.sin(ph * 2);
+        bob = Math.abs(bsn) * 0.24 * d.s;
+        sy = d.s * (1 - 0.09 * bsn);
+        sx = d.s * (1 + 0.09 * bsn);
+      } else if (move === 1) {    /* WAVE */
+        roll = Math.sin(ph) * 0.14;
+        bob = Math.abs(Math.sin(ph)) * 0.1 * d.s;
+      } else if (move === 2) {    /* SWAY */
+        roll = Math.sin(ph) * 0.18;
+        xoff = Math.sin(ph) * 0.16;
+        bob = Math.abs(Math.sin(ph * 1.4)) * 0.07 * d.s;
+      } else {                    /* SPIN handled by yaw */
+        bob = Math.abs(Math.sin(ph)) * 0.14 * d.s;
+        sy = d.s * (1 - 0.05 * Math.sin(ph));
+        sx = d.s * (1 + 0.05 * Math.sin(ph));
+      }
+      if (d.jt < d.jd) bob += -Math.sin(Math.PI * d.jt / d.jd) * 0.45 * d.s;
+
+      dummy.position.set(d.x + xoff, bob, d.z);
+      dummy.rotation.set(pitch, d.yaw + d.spinA, roll);
+      dummy.scale.set(sx, sy, sz);
+      dummy.updateMatrix();
+      bodyMesh.setMatrixAt(i, dummy.matrix);
+
+      if (d.acc === 1) {
+        offsetMat.makeTranslation(0, 1.82, 0);
+        accentMat.multiplyMatrices(dummy.matrix, offsetMat);
+        hatMesh.setMatrixAt(hi++, accentMat);
+      } else if (d.acc === 2) {
+        offsetMat.makeTranslation(0, 1.6, 0.3);
+        accentMat.multiplyMatrices(dummy.matrix, offsetMat);
+        shadesMesh.setMatrixAt(si++, accentMat);
+      } else if (d.acc === 3) {
+        offsetMat.makeTranslation(0, 1.88, 0);
+        accentMat.multiplyMatrices(dummy.matrix, offsetMat);
+        crownMesh.setMatrixAt(ci++, accentMat);
+      }
+    }
+
+    bodyMesh.instanceMatrix.needsUpdate = true;
+    if (hi) { hatMesh.count = hi; hatMesh.instanceMatrix.needsUpdate = true; }
+    if (si) { shadesMesh.count = si; shadesMesh.instanceMatrix.needsUpdate = true; }
+    if (ci) { crownMesh.count = ci; crownMesh.instanceMatrix.needsUpdate = true; }
+
+    sparkMesh.count = sparkles.length;
+    for (i = 0; i < sparkles.length; i++) {
+      var sp = sparkles[i];
+      var sc = 1 - sp.t / sp.life;
+      dummy.position.set(sp.x, sp.y, sp.z);
+      dummy.rotation.set(sp.rot, sp.rot * 0.7, 0);
+      dummy.scale.setScalar(Math.max(0.15, sc));
+      dummy.updateMatrix();
+      sparkMesh.setMatrixAt(i, dummy.matrix);
+      sparkMesh.setColorAt(i, sp.col);
+    }
+    if (sparkles.length) sparkMesh.instanceColor.needsUpdate = true;
+
+    confMesh.count = confetti.length;
+    for (i = 0; i < confetti.length; i++) {
+      var cf = confetti[i];
+      dummy.position.set(cf.x, cf.y, cf.z);
+      dummy.rotation.set(cf.rot, cf.rot * 0.8, cf.rot * 1.4);
+      dummy.scale.setScalar(Math.max(0.2, 1 - cf.t / cf.life * 0.4));
+      dummy.updateMatrix();
+      confMesh.setMatrixAt(i, dummy.matrix);
+      confMesh.setColorAt(i, cf.col);
+    }
+    if (confetti.length) confMesh.instanceColor.needsUpdate = true;
+  }
+
+  function updateScene(dt) {
+    camera.position.x = Math.sin(tGlobal * 0.28) * 0.3;
+    camera.lookAt(0, 1.35, -1);
+    ballPivot.position.set(Math.sin(tGlobal * 0.5) * 2.6, 4.7, -1.4);
+    ball.rotation.y += dt * 1.4;
+    ball.rotation.x += dt * 0.5;
+    ballLight.intensity = 0.75 + Math.abs(Math.sin(tGlobal * BPM / 60 * Math.PI)) * 0.55;
+    paintFloor();
+  }
+
+  /* ---------- main loop ---------- */
+  var lastT = -1;
+  function loop(t) {
+    requestAnimationFrame(loop);
+    var dt = lastT < 0 ? 0 : Math.min(0.05, Math.max(0, (t - lastT) / 1000));
+    lastT = t;
+    update(dt);
+    updateInstances();
+    updateScene(dt);
+    renderer.render(scene, camera);
+  }
+  resize();
   requestAnimationFrame(loop);
-  var dt = last < 0 ? 0 : Math.min(0.05, Math.max(0, (now - last) / 1000));
-  last = now;
-  update(dt);
-  draw();
 }
-requestAnimationFrame(loop);
+
+if (window.THREE) {
+  boot();
+} else {
+  var fallback = document.createElement('script');
+  fallback.src = 'https://unpkg.com/three@0.149.0/build/three.min.js';
+  fallback.onload = function () { boot(); };
+  fallback.onerror = function () { document.getElementById('cdnmsg').classList.add('show'); };
+  document.head.appendChild(fallback);
+}
 </script>
 </body>
 </html>
