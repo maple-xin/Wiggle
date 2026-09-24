@@ -194,9 +194,11 @@ function boot() {
   scene.background = new THREE.Color(BG);
   scene.fog = null;
 
-  var camera = new THREE.PerspectiveCamera(46, W / H, 0.1, 120);
-  camera.position.set(0, 3.2, 7.6);
-  camera.lookAt(0, 1.35, -1);
+  var camDist = 14.5, camHeight = 4.3, camTargetY = 1.35, camLookZ = -1;
+  var camPanX = 0, camPanZ = 0;
+  var camera = new THREE.PerspectiveCamera(46, W / H, 0.1, 140);
+  camera.position.set(camPanX, camHeight, camDist + camPanZ);
+  camera.lookAt(camPanX, camTargetY, camPanZ + camLookZ);
 
   var renderer = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
@@ -429,6 +431,7 @@ function boot() {
   var dancers = [], sparkles = [], confetti = [], floaters = [];
   var count = 0, best = 0, level = 0, frenzy = 0, lastTapT = -9, tGlobal = 0;
   var flash = 0, dragging = false, lastPtNdc = null, callT = 2;
+  var pointers = {}, pinch = null;
 
   var $ = function (id) { return document.getElementById(id); };
   var cntEl = $('cnt'), bestEl = $('best'), titleBestEl = $('titleBest');
@@ -583,37 +586,87 @@ function boot() {
     if (!raycaster.ray.intersectPlane(floorPlane, hit)) return null;
     return { x: hit.x, y: hit.y, z: hit.z };
   }
+  function pointerCount() {
+    var n = 0;
+    for (var k in pointers) if (pointers.hasOwnProperty(k)) n++;
+    return n;
+  }
+  function pinchDistance() {
+    var ids = [];
+    for (var k in pointers) if (pointers.hasOwnProperty(k)) ids.push(k);
+    if (ids.length < 2) return null;
+    var a = pointers[ids[0]], b = pointers[ids[1]];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), a: ids[0], b: ids[1] };
+  }
+  function zoomBy(factor) {
+    camDist = Math.max(9, Math.min(24, camDist * factor));
+  }
+  function clientPt(e) {
+    var r = cvs.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top) * (H / r.height)
+    };
+  }
 
   cvs.addEventListener('pointerdown', function (e) {
     if (state !== 'play') return;
     e.preventDefault();
     audio();
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (pointerCount() === 2) {
+      var pd = pinchDistance();
+      if (pd) pinch = { d: pd.d, a: pd.a, b: pd.b };
+      dragging = false; lastPtNdc = null;
+      return;
+    }
+    if (pointerCount() !== 1) return;
     var hit = pointerWorld(e);
     if (!hit) return;
-    var r = cvs.getBoundingClientRect();
-    var sx = (e.clientX - r.left) * (W / r.width);
-    var sy = (e.clientY - r.top) * (H / r.height);
-    tapAtWorld(hit.x, hit.z, sx, sy);
+    var p = clientPt(e);
+    tapAtWorld(hit.x, hit.z, p.x, p.y);
     dragging = true;
+    lastPtNdc = p;
   });
   cvs.addEventListener('pointermove', function (e) {
-    if (state !== 'play' || !dragging) return;
+    if (state !== 'play') return;
+    if (!pointers[e.pointerId]) return;
     e.preventDefault();
-    var r = cvs.getBoundingClientRect();
-    var sx = (e.clientX - r.left) * (W / r.width);
-    var sy = (e.clientY - r.top) * (H / r.height);
-    if (!lastPtNdc) lastPtNdc = { x: sx, y: sy };
-    var dx = sx - lastPtNdc.x, dy = sy - lastPtNdc.y;
+    pointers[e.pointerId].x = e.clientX;
+    pointers[e.pointerId].y = e.clientY;
+
+    if (pinch) {
+      var pd = pinchDistance();
+      if (pd && pd.d > 4) {
+        var factor = pinch.d / pd.d;
+        if (factor > 0.75 && factor < 1.33) zoomBy(factor);
+        pinch.d = pd.d;
+      }
+      return;
+    }
+    if (!dragging) return;
+    var p = clientPt(e);
+    if (!lastPtNdc) lastPtNdc = p;
+    var dx = p.x - lastPtNdc.x, dy = p.y - lastPtNdc.y;
     if (dx * dx + dy * dy > 34 * 34) {
       var hit = pointerWorld(e);
-      if (hit) tapAtWorld(hit.x, hit.z, sx, sy);
-      lastPtNdc = { x: sx, y: sy };
+      if (hit) tapAtWorld(hit.x, hit.z, p.x, p.y);
+      lastPtNdc = p;
     }
   });
-  function endPtr() { dragging = false; lastPtNdc = null; }
+  function endPtr(e) {
+    if (pointers[e.pointerId]) delete pointers[e.pointerId];
+    if (pinch && (!pointers[pinch.a] || !pointers[pinch.b])) pinch = null;
+    dragging = false; lastPtNdc = null;
+  }
   cvs.addEventListener('pointerup', endPtr);
   cvs.addEventListener('pointercancel', endPtr);
   cvs.addEventListener('pointerleave', endPtr);
+  cvs.addEventListener('wheel', function (e) {
+    if (state !== 'play') return;
+    e.preventDefault();
+    zoomBy(e.deltaY > 0 ? 1.1 : 0.9);
+  }, { passive: false });
 
   /* ---------- levels / flow ---------- */
   function checkLevel() {
@@ -657,9 +710,11 @@ function boot() {
       if (fl.el && fl.el.parentNode) fl.el.parentNode.removeChild(fl.el);
     }
     dragging = false; lastPtNdc = null;
+    pointers = {}; pinch = null;
     state = 'play';
     document.body.classList.add('ingame');
     updateHud();
+    floater(W / 2, H * 0.34, 'PINCH OR SCROLL TO ZOOM', '#FFFFFF', 2.2);
   }
   function demoParty() {
     dancers = [];
@@ -847,8 +902,8 @@ function boot() {
   }
 
   function updateScene(dt) {
-    camera.position.x = Math.sin(tGlobal * 0.28) * 0.3;
-    camera.lookAt(0, 1.35, -1);
+    camera.position.set(camPanX + Math.sin(tGlobal * 0.28) * 0.22, camHeight, camDist + camPanZ);
+    camera.lookAt(camPanX, camTargetY, camPanZ + camLookZ);
     ballPivot.position.set(Math.sin(tGlobal * 0.5) * 2.6, 4.7, -1.4);
     ball.rotation.y += dt * 1.4;
     ball.rotation.x += dt * 0.5;
